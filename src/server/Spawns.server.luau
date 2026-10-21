@@ -6,9 +6,11 @@
 -- can build that folder in Studio with your own parts. If it doesn't exist,
 -- this script makes a ring of points around the middle of the map.
 
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 
 local RESPAWN_TIME = 3 -- seconds between dying and coming back
+local SPAWN_PROTECTION = 3 -- seconds you can't be hurt after spawning (shooting ends it early)
 local DEFAULT_POINT_COUNT = 8
 local DEFAULT_RING_RADIUS = 60 -- studs from the middle of the map
 
@@ -101,6 +103,16 @@ local function onCharacterAdded(player: Player, character: Model)
 	if point then
 		character:PivotTo(point.CFrame + Vector3.new(0, 3, 0))
 	end
+
+	-- Swap the SpawnLocation's long ForceField for our short one.
+	for _, child in character:GetChildren() do
+		if child:IsA("ForceField") then
+			child:Destroy()
+		end
+	end
+	local forceField = Instance.new("ForceField")
+	forceField.Parent = character
+	Debris:AddItem(forceField, SPAWN_PROTECTION)
 end
 
 local function onPlayerAdded(player: Player)

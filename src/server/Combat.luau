@@ -20,20 +20,26 @@ Combat.PlayerKilled = playerKilled.Event
 -- Set to false between rounds so nobody can be hurt.
 Combat.enabled = true
 
+-- What a hit did: "none" (no damage, e.g. a ForceField), "hit" or "kill".
+export type HitResult = "none" | "hit" | "kill"
+
 -- Damage a Humanoid on behalf of a player. If the hit is lethal, the attacker
 -- gets the kill.
-function Combat.dealDamage(attacker: Player, target: Humanoid, amount: number)
+function Combat.dealDamage(attacker: Player, target: Humanoid, amount: number): HitResult
 	if not Combat.enabled then
-		return
+		return "none"
 	end
 	if alreadyDead[target] or target.Health <= 0 then
-		return -- already dead, nobody gets credit for hitting a body
+		return "none" -- already dead, nobody gets credit for hitting a body
 	end
 
 	-- TakeDamage does nothing while the target has a spawn ForceField.
+	local healthBefore = target.Health
 	target:TakeDamage(amount)
-	if target.Health > 0 then
-		return
+	if target.Health >= healthBefore then
+		return "none"
+	elseif target.Health > 0 then
+		return "hit"
 	end
 	alreadyDead[target] = true
 
@@ -48,6 +54,7 @@ function Combat.dealDamage(attacker: Player, target: Humanoid, amount: number)
 	else
 		print(`[Combat] {attacker.Name} killed {victimCharacter and victimCharacter.Name or "something"}`)
 	end
+	return "kill"
 end
 
 return Combat
