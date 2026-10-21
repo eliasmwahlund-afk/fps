@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPack = game:GetService("StarterPack")
 
 local GunConfig = require(ReplicatedStorage.Shared.GunConfig)
+local Combat = require(script.Parent.Combat)
 
 local GUN_NAME = "Pistol"
 local stats = GunConfig[GUN_NAME]
@@ -139,8 +140,8 @@ fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
 
 	if result then
 		local target = getHumanoidFromPart(result.Instance)
-		if target and target.Health > 0 then
-			target:TakeDamage(stats.damage)
+		if target then
+			Combat.dealDamage(player, target, stats.damage)
 		end
 	end
 end)
