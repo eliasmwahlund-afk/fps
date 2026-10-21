@@ -20,6 +20,7 @@ local LAG_SLACK = 0.9
 local random = Random.new()
 
 local fireGun = Remotes.get("FireGun")
+local hitConfirmed = Remotes.get("HitConfirmed") -- sent to the shooter: (killed: boolean)
 
 local function buildGun(name: string, stats: GunConfig.GunStats): Tool
 	local tool = Instance.new("Tool")
@@ -78,6 +79,22 @@ local function showTracer(from: Vector3, to: Vector3)
 	Debris:AddItem(tracer, 0.05)
 end
 
+-- A little flash of sparks where a bullet lands.
+local function showImpact(position: Vector3)
+	local spark = Instance.new("Part")
+	spark.Shape = Enum.PartType.Ball
+	spark.Size = Vector3.new(0.5, 0.5, 0.5)
+	spark.Anchored = true
+	spark.CanCollide = false
+	spark.CanQuery = false
+	spark.CanTouch = false
+	spark.Material = Enum.Material.Neon
+	spark.Color = Color3.fromRGB(255, 200, 90)
+	spark.Position = position
+	spark.Parent = workspace
+	Debris:AddItem(spark, 0.08)
+end
+
 -- Tilt a direction by a random angle of up to `degrees`, in a random direction.
 local function applySpread(direction: Vector3, degrees: number): Vector3
 	if degrees <= 0 then
@@ -131,6 +148,12 @@ fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
 	end
 	lastShotAt[player] = now
 
+	-- Shooting ends your spawn protection early, so nobody can fire from safety.
+	local forceField = character:FindFirstChildOfClass("ForceField")
+	if forceField then
+		forceField:Destroy()
+	end
+
 	-- Fire from the gun's real position on the server, up to the gun's range.
 	local origin = handle.Position
 	local toAim = aim - origin
@@ -143,17 +166,28 @@ fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { character }
 
+	-- A shotgun fires several pellets but the shooter gets one hit marker.
+	local anyHit = false
+	local anyKill = false
+
 	for _ = 1, stats.pellets do
 		local direction = applySpread(aimDirection, stats.spread)
 		local result = workspace:Raycast(origin, direction, params)
 		showTracer(origin, if result then result.Position else origin + direction)
 
 		if result then
+			showImpact(result.Position)
 			local target = getHumanoidFromPart(result.Instance)
 			if target then
-				Combat.dealDamage(player, target, stats.damage)
+				local hit = Combat.dealDamage(player, target, stats.damage)
+				anyHit = anyHit or hit ~= "none"
+				anyKill = anyKill or hit == "kill"
 			end
 		end
+	end
+
+	if anyHit then
+		hitConfirmed:FireClient(player, anyKill)
 	end
 end)
 
