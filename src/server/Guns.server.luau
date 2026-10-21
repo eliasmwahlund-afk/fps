@@ -12,26 +12,14 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local GunConfig = require(ReplicatedStorage.Shared.GunConfig)
 local Combat = require(script.Parent.Combat)
+local Remotes = require(script.Parent.Remotes)
 
 -- A little slack so shots aren't rejected because of network lag.
 local LAG_SLACK = 0.9
 
 local random = Random.new()
 
-local function getRemotesFolder(): Instance
-	local existing = ReplicatedStorage:FindFirstChild("Remotes")
-	if existing then
-		return existing
-	end
-	local folder = Instance.new("Folder")
-	folder.Name = "Remotes"
-	folder.Parent = ReplicatedStorage
-	return folder
-end
-
-local fireGun = Instance.new("RemoteEvent")
-fireGun.Name = "FireGun"
-fireGun.Parent = getRemotesFolder()
+local fireGun = Remotes.get("FireGun")
 
 local function buildGun(name: string, stats: GunConfig.GunStats): Tool
 	local tool = Instance.new("Tool")
