@@ -1,7 +1,9 @@
 --!strict
--- Gun Game progression. Everyone starts on the first weapon in WeaponLadder.
--- Each kill moves the killer up one weapon, and a kill with the last weapon
--- wins. Kills and Level show in the player list (top right).
+-- Gun Game progression and rounds. Everyone starts on the first weapon in
+-- WeaponLadder. Each kill moves the killer up one weapon, and a kill with the
+-- last weapon wins the round. After a short break with no damage, everyone
+-- respawns on the first weapon for a new round.
+-- Kills and Level show in the player list (top right).
 -- Only kills on real players count; the target dummy doesn't.
 
 local Players = game:GetService("Players")
@@ -10,6 +12,14 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local WeaponLadder = require(ReplicatedStorage.Shared.WeaponLadder)
 local Combat = require(script.Parent.Combat)
+local Remotes = require(script.Parent.Remotes)
+
+local INTERMISSION = 8 -- seconds between a win and the next round
+
+-- The HUD on each player's screen listens to these.
+local killFeed = Remotes.get("KillFeed") -- (killerName, victimName, weaponName)
+local roundEnded = Remotes.get("RoundEnded") -- (winnerName, secondsUntilNextRound)
+local roundStarted = Remotes.get("RoundStarted")
 
 local gunsFolder = ServerStorage:WaitForChild("Guns")
 
@@ -87,29 +97,43 @@ for _, player in Players:GetPlayers() do
 	onPlayerAdded(player)
 end
 
--- Everyone goes back to the first weapon.
-local function resetEveryone()
+-- Everyone goes back to the first weapon with no kills, and respawns.
+local function startNewRound()
 	for _, player in Players:GetPlayers() do
 		local level = getStat(player, "Level")
-		if level then
+		local kills = getStat(player, "Kills")
+		if level and kills then
 			level.Value = 1
-			task.spawn(giveWeapon, player)
+			kills.Value = 0
 		end
+		-- Respawning also hands out the pistol and picks a spawn point.
+		task.spawn(function()
+			player:LoadCharacter()
+		end)
 	end
+	Combat.enabled = true
+	roundStarted:FireAllClients()
+	print("[GunGame] New round!")
 end
 
-Combat.PlayerKilled:Connect(function(killer: Player, _victim: Player)
+local function endRound(winner: Player)
+	Combat.enabled = false -- nobody can be hurt during the break
+	print(`[GunGame] {winner.Name} wins!`)
+	roundEnded:FireAllClients(winner.Name, INTERMISSION)
+	task.delay(INTERMISSION, startNewRound)
+end
+
+Combat.PlayerKilled:Connect(function(killer: Player, victim: Player)
 	local kills = getStat(killer, "Kills")
 	local level = getStat(killer, "Level")
 	if not kills or not level then
 		return
 	end
 	kills.Value += 1
+	killFeed:FireAllClients(killer.Name, victim.Name, WeaponLadder[level.Value])
 
 	if level.Value >= #WeaponLadder then
-		print(`[GunGame] {killer.Name} wins!`)
-		-- Proper rounds come in the next step. For now everyone starts over.
-		resetEveryone()
+		endRound(killer)
 		return
 	end
 

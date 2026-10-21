@@ -17,9 +17,15 @@ local alreadyDead: { [Humanoid]: boolean } = setmetatable({}, { __mode = "k" }) 
 -- Fires with (killer: Player, victim: Player) when one player kills another.
 Combat.PlayerKilled = playerKilled.Event
 
+-- Set to false between rounds so nobody can be hurt.
+Combat.enabled = true
+
 -- Damage a Humanoid on behalf of a player. If the hit is lethal, the attacker
 -- gets the kill.
 function Combat.dealDamage(attacker: Player, target: Humanoid, amount: number)
+	if not Combat.enabled then
+		return
+	end
 	if alreadyDead[target] or target.Health <= 0 then
 		return -- already dead, nobody gets credit for hitting a body
 	end
