@@ -1,21 +1,22 @@
 --!strict
--- Server side of the pistol. Builds the tool, then checks every shot before
--- doing damage. The client only tells us where it aimed; everything else
--- (fire rate, range, what got hit, how much damage) is decided here.
+-- Server side of every gun. Builds one Tool per gun in GunConfig and keeps
+-- them in ServerStorage.Guns, where Progression hands out copies. Then checks
+-- every shot before doing damage. The client only tells us where it aimed;
+-- everything else (which gun, fire rate, range, spread, what got hit, how much
+-- damage) is decided here.
 
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterPack = game:GetService("StarterPack")
+local ServerStorage = game:GetService("ServerStorage")
 
 local GunConfig = require(ReplicatedStorage.Shared.GunConfig)
 local Combat = require(script.Parent.Combat)
 
-local GUN_NAME = "Pistol"
-local stats = GunConfig[GUN_NAME]
-
 -- A little slack so shots aren't rejected because of network lag.
-local MIN_SHOT_INTERVAL = (1 / stats.fireRate) * 0.9
+local LAG_SLACK = 0.9
+
+local random = Random.new()
 
 local function getRemotesFolder(): Instance
 	local existing = ReplicatedStorage:FindFirstChild("Remotes")
@@ -32,16 +33,15 @@ local fireGun = Instance.new("RemoteEvent")
 fireGun.Name = "FireGun"
 fireGun.Parent = getRemotesFolder()
 
--- Build the pistol and put it in StarterPack so every player spawns with one.
-local function buildPistol(): Tool
+local function buildGun(name: string, stats: GunConfig.GunStats): Tool
 	local tool = Instance.new("Tool")
-	tool.Name = GUN_NAME
+	tool.Name = name
 	tool.CanBeDropped = false
 
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"
-	handle.Size = Vector3.new(0.3, 0.6, 1.4)
-	handle.Color = Color3.fromRGB(45, 45, 50)
+	handle.Size = stats.size
+	handle.Color = stats.color
 	handle.Material = Enum.Material.Metal
 	handle.CanCollide = false
 	handle.Massless = true
@@ -50,7 +50,12 @@ local function buildPistol(): Tool
 	return tool
 end
 
-buildPistol().Parent = StarterPack
+local gunsFolder = Instance.new("Folder")
+gunsFolder.Name = "Guns"
+for name, stats in GunConfig do
+	buildGun(name, stats).Parent = gunsFolder
+end
+gunsFolder.Parent = ServerStorage
 
 -- Walk up from the part that was hit to find a character's Humanoid, if any.
 local function getHumanoidFromPart(part: Instance): Humanoid?
@@ -85,6 +90,16 @@ local function showTracer(from: Vector3, to: Vector3)
 	Debris:AddItem(tracer, 0.05)
 end
 
+-- Tilt a direction by a random angle of up to `degrees`, in a random direction.
+local function applySpread(direction: Vector3, degrees: number): Vector3
+	if degrees <= 0 then
+		return direction
+	end
+	local roll = CFrame.Angles(0, 0, random:NextNumber(0, math.pi * 2))
+	local tilt = CFrame.Angles(random:NextNumber(0, math.rad(degrees)), 0, 0)
+	return (CFrame.lookAt(Vector3.zero, direction) * roll * tilt).LookVector * direction.Magnitude
+end
+
 local lastShotAt: { [Player]: number } = {}
 
 fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
@@ -97,7 +112,8 @@ fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
 		return
 	end
 
-	-- The player must be alive and actually holding the pistol.
+	-- The player must be alive and holding one of our guns. Guns only ever come
+	-- from the server, so a cheater can't invent a better one.
 	local character = player.Character
 	if not character then
 		return
@@ -106,8 +122,12 @@ fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
 	if not humanoid or humanoid.Health <= 0 then
 		return
 	end
-	local tool = character:FindFirstChild(GUN_NAME)
-	if not tool or not tool:IsA("Tool") then
+	local tool = character:FindFirstChildOfClass("Tool")
+	if not tool then
+		return
+	end
+	local stats = GunConfig[tool.Name]
+	if not stats then
 		return
 	end
 	local handle = tool:FindFirstChild("Handle")
@@ -115,33 +135,36 @@ fireGun.OnServerEvent:Connect(function(player: Player, aimPosition: unknown)
 		return
 	end
 
-	-- Fire rate: ignore shots that come in faster than the gun allows.
+	-- Fire rate: ignore shots that come in faster than this gun allows.
 	local now = os.clock()
 	local last = lastShotAt[player]
-	if last and now - last < MIN_SHOT_INTERVAL then
+	if last and now - last < (1 / stats.fireRate) * LAG_SLACK then
 		return
 	end
 	lastShotAt[player] = now
 
-	-- Fire the ray from the gun's real position on the server, up to the gun's range.
+	-- Fire from the gun's real position on the server, up to the gun's range.
 	local origin = handle.Position
 	local toAim = aim - origin
 	if toAim.Magnitude < 0.01 then
 		return
 	end
-	local direction = toAim.Unit * stats.range
+	local aimDirection = toAim.Unit * stats.range
 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { character }
 
-	local result = workspace:Raycast(origin, direction, params)
-	showTracer(origin, if result then result.Position else origin + direction)
+	for _ = 1, stats.pellets do
+		local direction = applySpread(aimDirection, stats.spread)
+		local result = workspace:Raycast(origin, direction, params)
+		showTracer(origin, if result then result.Position else origin + direction)
 
-	if result then
-		local target = getHumanoidFromPart(result.Instance)
-		if target then
-			Combat.dealDamage(player, target, stats.damage)
+		if result then
+			local target = getHumanoidFromPart(result.Instance)
+			if target then
+				Combat.dealDamage(player, target, stats.damage)
+			end
 		end
 	end
 end)
