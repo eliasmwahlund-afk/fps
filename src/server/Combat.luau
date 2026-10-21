@@ -8,13 +8,19 @@ local Combat = {}
 
 local playerKilled = Instance.new("BindableEvent")
 
+-- Humanoids that have already died. We can't just check Health, because
+-- Roblox's built-in health regen keeps running on a dead character and nudges
+-- its Health back above 0. Without this, shooting a body would count as a
+-- second kill.
+local alreadyDead: { [Humanoid]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
 -- Fires with (killer: Player, victim: Player) when one player kills another.
 Combat.PlayerKilled = playerKilled.Event
 
 -- Damage a Humanoid on behalf of a player. If the hit is lethal, the attacker
 -- gets the kill.
 function Combat.dealDamage(attacker: Player, target: Humanoid, amount: number)
-	if target.Health <= 0 then
+	if alreadyDead[target] or target.Health <= 0 then
 		return -- already dead, nobody gets credit for hitting a body
 	end
 
@@ -23,6 +29,7 @@ function Combat.dealDamage(attacker: Player, target: Humanoid, amount: number)
 	if target.Health > 0 then
 		return
 	end
+	alreadyDead[target] = true
 
 	local victimCharacter = target.Parent
 	local victim = if victimCharacter and victimCharacter:IsA("Model")
